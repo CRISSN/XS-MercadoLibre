@@ -1069,52 +1069,58 @@ function consultarClaimsCuentaVendedora(accessToken, sellerId, fechaDesde, fecha
     var client = new $.net.http.Client();
     var dest = $.net.http.readDestination("MercadoLibre", "meli_token");
     var claims = [];
-    var offset = 0;
     var limit = 100;
-    var total = 0;
+    var estados = ["opened", "closed"];
     var rango = "date_created:after:" + fechaDesde +
         "T00:00:00.000Z,before:" + fechaHasta + "T23:59:59.999Z";
 
     try {
-        do {
-            var path = "/post-purchase/v1/claims/search" +
-                "?type=return" +
-                "&players.user_id=" + encodeURIComponent(String(sellerId)) +
-                "&players.role=respondent" +
-                "&range=" + encodeURIComponent(rango) +
-                "&sort=" + encodeURIComponent("date_created:desc") +
-                "&limit=" + limit +
-                "&offset=" + offset;
+        for (var e = 0; e < estados.length; e++) {
+            var offset = 0;
+            var total = 0;
 
-            var req = new $.net.http.Request($.net.http.GET, path);
-            req.timeout = 30000;
-            req.headers.set("Authorization", "Bearer " + accessToken);
-            req.headers.set("Accept", "application/json");
+            do {
+                var path = "/post-purchase/v1/claims/search" +
+                    "?players.user_id=" + encodeURIComponent(String(sellerId)) +
+                    "&players.role=respondent" +
+                    "&status=" + encodeURIComponent(estados[e]) +
+                    "&range=" + encodeURIComponent(rango) +
+                    "&sort=" + encodeURIComponent("date_created:desc") +
+                    "&limit=" + limit +
+                    "&offset=" + offset;
 
-            client.request(req, dest);
-            var resp = client.getResponse();
-            var bodyText = resp.body ? resp.body.asString() : "";
+                var req = new $.net.http.Request($.net.http.GET, path);
+                req.timeout = 30000;
+                req.headers.set("Authorization", "Bearer " + accessToken);
+                req.headers.set("Accept", "application/json");
 
-            if (resp.status !== 200) {
-                throw new Error(
-                    "Error ML buscando claims HTTP " + resp.status + ": " + bodyText
-                );
-            }
+                client.request(req, dest);
+                var resp = client.getResponse();
+                var bodyText = resp.body ? resp.body.asString() : "";
 
-            var body = bodyText ? JSON.parse(bodyText) : {};
-            var pagina = body.data && Array.isArray(body.data) ? body.data : [];
-            claims = claims.concat(pagina);
-            total = body.paging && body.paging.total
-                ? Number(body.paging.total)
-                : claims.length;
-            offset += pagina.length;
+                if (resp.status !== 200) {
+                    throw new Error(
+                        "Error ML buscando claims " + estados[e] +
+                        " HTTP " + resp.status + ": " + bodyText
+                    );
+                }
 
-            if (offset >= 9900 && offset < total) {
-                throw new Error(
-                    "La búsqueda supera el límite de 9.900 claims; reduzca el rango de fechas"
-                );
-            }
-        } while (offset < total && offset > 0);
+                var body = bodyText ? JSON.parse(bodyText) : {};
+                var pagina = body.data && Array.isArray(body.data) ? body.data : [];
+                claims = claims.concat(pagina);
+                total = body.paging && body.paging.total
+                    ? Number(body.paging.total)
+                    : offset + pagina.length;
+                offset += pagina.length;
+
+                if (offset >= 9900 && offset < total) {
+                    throw new Error(
+                        "La búsqueda de claims " + estados[e] +
+                        " supera el límite de 9.900; reduzca el rango de fechas"
+                    );
+                }
+            } while (offset < total && pagina.length > 0);
+        }
 
         return claims;
     } finally {
