@@ -910,37 +910,24 @@ function ObtenerDevolucionesMLCuenta(parametrosML, fechaDesde, fechaHasta) {
     }
 
     var claimsPorId = {};
-    var fechas = construirRangoFechasDevoluciones(fechaDesde, fechaHasta);
+    var claimsCuenta = consultarClaimsCuentaVendedora(
+        token.access_token,
+        parametrosML.ML_SELLER_ID,
+        fechaDesde,
+        fechaHasta
+    );
 
-    for (var f = 0; f < fechas.length; f++) {
-        var claimsDia = LogicaMercadoLibre.GetClaimsReturnsByDate(
-            token.access_token,
-            parametrosML.ML_SELLER_ID,
-            fechas[f],
-            0
-        );
-
-        if (!claimsDia || !Array.isArray(claimsDia)) {
+    for (var c = 0; c < claimsCuenta.length; c++) {
+        var claimCuenta = claimsCuenta[c];
+        if (!claimCuenta || claimCuenta.id === undefined || claimCuenta.id === null) {
             resultado.errores.push({
-                fecha: fechas[f],
-                mensaje: "La consulta de claims no devolvió un array"
+                mensaje: "Claim sin identificador",
+                claim: claimCuenta
             });
             continue;
         }
 
-        for (var c = 0; c < claimsDia.length; c++) {
-            var claimDia = claimsDia[c];
-            if (!claimDia || claimDia.id === undefined || claimDia.id === null) {
-                resultado.errores.push({
-                    fecha: fechas[f],
-                    mensaje: "Claim sin identificador",
-                    claim: claimDia
-                });
-                continue;
-            }
-
-            claimsPorId[String(claimDia.id)] = claimDia;
-        }
+        claimsPorId[String(claimCuenta.id)] = claimCuenta;
     }
 
     for (var claimId in claimsPorId) {
@@ -966,7 +953,7 @@ function ObtenerDevolucionesMLCuenta(parametrosML, fechaDesde, fechaHasta) {
         }
 
         try {
-            var returnResponse = LogicaMercadoLibre.GetReturnByClaim(
+            var returnResponse = consultarReturnsPorClaim(
                 token.access_token,
                 claim.id
             );
@@ -1072,6 +1059,95 @@ function formatearFechaDevolucion(fecha) {
     return fecha.getFullYear() + "-" +
         (mes.length < 2 ? "0" + mes : mes) + "-" +
         (dia.length < 2 ? "0" + dia : dia);
+}
+
+function consultarClaimsCuentaVendedora(accessToken, sellerId, fechaDesde, fechaHasta) {
+    if (!sellerId) {
+        throw new Error("La configuración no contiene ML_SELLER_ID");
+    }
+
+    var client = new $.net.http.Client();
+    var dest = $.net.http.readDestination("MercadoLibre", "meli_token");
+    var claims = [];
+    var offset = 0;
+    var limit = 100;
+    var total = 0;
+    var rango = "date_created:after:" + fechaDesde +
+        "T00:00:00.000Z,before:" + fechaHasta + "T23:59:59.999Z";
+
+    try {
+        do {
+            var path = "/post-purchase/v1/claims/search" +
+                "?players.user_id=" + encodeURIComponent(String(sellerId)) +
+                "&players.role=respondent" +
+                "&range=" + encodeURIComponent(rango) +
+                "&sort=" + encodeURIComponent("date_created:desc") +
+                "&limit=" + limit +
+                "&offset=" + offset;
+
+            var req = new $.net.http.Request($.net.http.GET, path);
+            req.timeout = 30000;
+            req.headers.set("Authorization", "Bearer " + accessToken);
+            req.headers.set("Accept", "application/json");
+
+            client.request(req, dest);
+            var resp = client.getResponse();
+            var bodyText = resp.body ? resp.body.asString() : "";
+
+            if (resp.status !== 200) {
+                throw new Error(
+                    "Error ML buscando claims HTTP " + resp.status + ": " + bodyText
+                );
+            }
+
+            var body = bodyText ? JSON.parse(bodyText) : {};
+            var pagina = body.data && Array.isArray(body.data) ? body.data : [];
+            claims = claims.concat(pagina);
+            total = body.paging && body.paging.total
+                ? Number(body.paging.total)
+                : claims.length;
+            offset += pagina.length;
+
+            if (offset >= 9900 && offset < total) {
+                throw new Error(
+                    "La búsqueda supera el límite de 9.900 claims; reduzca el rango de fechas"
+                );
+            }
+        } while (offset < total && offset > 0);
+
+        return claims;
+    } finally {
+        client.close();
+    }
+}
+
+function consultarReturnsPorClaim(accessToken, claimId) {
+    var client = new $.net.http.Client();
+    var dest = $.net.http.readDestination("MercadoLibre", "meli_token");
+
+    try {
+        var path = "/post-purchase/v2/claims/" +
+            encodeURIComponent(String(claimId)) + "/returns";
+        var req = new $.net.http.Request($.net.http.GET, path);
+        req.timeout = 30000;
+        req.headers.set("Authorization", "Bearer " + accessToken);
+        req.headers.set("Accept", "application/json");
+
+        client.request(req, dest);
+        var resp = client.getResponse();
+        var bodyText = resp.body ? resp.body.asString() : "";
+
+        if (resp.status !== 200) {
+            throw new Error(
+                "Error ML consultando devolución del claim " + claimId +
+                " HTTP " + resp.status + ": " + bodyText
+            );
+        }
+
+        return bodyText ? JSON.parse(bodyText) : null;
+    } finally {
+        client.close();
+    }
 }
 // rut
 
