@@ -1,0 +1,11 @@
+{
+    "description": "reprocesar registros de tabla OJDT",
+    "action": "MercadoLibre:main.xsjs::ActualizarStock",
+    "schedules": [
+       {
+          "description": "Read current stock value",
+          "xscron": "* * * * * */5 59"
+       }
+    ]
+    
+}

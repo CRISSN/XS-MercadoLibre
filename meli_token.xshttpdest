@@ -1,0 +1,11 @@
+description = "TOKEN";
+host = "api.mercadolibre.com";
+port = 443;
+proxyType = none;
+proxyHost = "";
+proxyPort = 0;
+authType = none;
+useSSL = true;
+timeout = 0;
+pathPrefix = "";
+sslAuth = anonymous;

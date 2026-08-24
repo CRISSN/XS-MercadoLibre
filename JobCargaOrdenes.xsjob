@@ -1,0 +1,11 @@
+{
+    "description": "Carga Ordenes de mercado libre",
+    "action": "MercadoLibre:main.xsjs::ObtenerOrdenes",
+    "schedules": [
+       {
+          "description": "Read current stock value",
+          "xscron": "* * * * * */5 59"
+       }
+    ]
+    
+}

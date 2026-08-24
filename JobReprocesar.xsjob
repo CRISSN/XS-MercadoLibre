@@ -1,0 +1,11 @@
+{
+    "description": "Reprocesar Ordenes ML",
+    "action": "MercadoLibre:main.xsjs::ReprocesarOrdenes",
+    "schedules": [
+       {
+          "description": "Read current stock value",
+          "xscron": "* * * * * */10 59"
+       }
+    ]
+    
+}

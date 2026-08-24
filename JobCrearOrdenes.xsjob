@@ -1,0 +1,11 @@
+{
+    "description": "CARGA ORDENES A SAP",
+    "action": "MercadoLibre:main.xsjs::CrearOrdenes",
+    "schedules": [
+       {
+          "description": "Read current stock value",
+           "xscron": "* * * * * */2 59"
+       }
+    ]
+    
+}
