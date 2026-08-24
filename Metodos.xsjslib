@@ -881,6 +881,198 @@ function ObtenerDevolucionesMLPorOrden(parametrosML, orderId) {
     resultado.ok = resultado.errores.length === 0;
     return resultado;
 }
+
+function ObtenerDevolucionesMLCuenta(parametrosML, fechaDesde, fechaHasta) {
+    var resultado = {
+        ok: false,
+        seller_id: parametrosML && parametrosML.ML_SELLER_ID
+            ? String(parametrosML.ML_SELLER_ID)
+            : "",
+        fecha_desde: fechaDesde || "",
+        fecha_hasta: fechaHasta || "",
+        total: 0,
+        total_claims: 0,
+        devoluciones: [],
+        omitidas: [],
+        errores: [],
+        estados: {}
+    };
+
+    validarRangoFechasDevoluciones(fechaDesde, fechaHasta);
+
+    var token = LogicaMercadoLibre.RefreshToken_BodyParam(parametrosML);
+
+    if (!token || !token.access_token) {
+        throw new Error(
+            "Error al obtener Token: " +
+            (token && token.message ? token.message : "Respuesta sin access_token")
+        );
+    }
+
+    var claimsPorId = {};
+    var fechas = construirRangoFechasDevoluciones(fechaDesde, fechaHasta);
+
+    for (var f = 0; f < fechas.length; f++) {
+        var claimsDia = LogicaMercadoLibre.GetClaimsReturnsByDate(
+            token.access_token,
+            parametrosML.ML_SELLER_ID,
+            fechas[f],
+            0
+        );
+
+        if (!claimsDia || !Array.isArray(claimsDia)) {
+            resultado.errores.push({
+                fecha: fechas[f],
+                mensaje: "La consulta de claims no devolvió un array"
+            });
+            continue;
+        }
+
+        for (var c = 0; c < claimsDia.length; c++) {
+            var claimDia = claimsDia[c];
+            if (!claimDia || claimDia.id === undefined || claimDia.id === null) {
+                resultado.errores.push({
+                    fecha: fechas[f],
+                    mensaje: "Claim sin identificador",
+                    claim: claimDia
+                });
+                continue;
+            }
+
+            claimsPorId[String(claimDia.id)] = claimDia;
+        }
+    }
+
+    for (var claimId in claimsPorId) {
+        if (!Object.prototype.hasOwnProperty.call(claimsPorId, claimId)) {
+            continue;
+        }
+
+        var claim = claimsPorId[claimId];
+        resultado.total_claims++;
+        var validacionClaim = validarClaimConDevolucion(claim);
+
+        if (!validacionClaim.ok) {
+            resultado.omitidas.push({
+                claim_id: claimId,
+                type: validacionClaim.type,
+                status: validacionClaim.status,
+                stage: validacionClaim.stage,
+                resource: validacionClaim.resource,
+                related_entities: validacionClaim.related_entities,
+                mensaje: "El claim no tiene una devolución asociada"
+            });
+            continue;
+        }
+
+        try {
+            var returnResponse = LogicaMercadoLibre.GetReturnByClaim(
+                token.access_token,
+                claim.id
+            );
+            var returns = Array.isArray(returnResponse)
+                ? returnResponse
+                : [returnResponse];
+
+            for (var r = 0; r < returns.length; r++) {
+                var returnData = returns[r];
+
+                if (!returnData || returnData.id === undefined || returnData.id === null) {
+                    resultado.errores.push({
+                        claim_id: claimId,
+                        mensaje: "La respuesta no contiene return_id"
+                    });
+                    continue;
+                }
+
+                var devolucion = construirDocumentoDevolucion(claim, returnData);
+                resultado.devoluciones.push({ devolucion: devolucion });
+
+                var estado = String(returnData.status || claim.status || "sin_estado");
+                resultado.estados[estado] = (resultado.estados[estado] || 0) + 1;
+            }
+        } catch (errorReturn) {
+            resultado.errores.push({
+                claim_id: claimId,
+                mensaje: errorReturn.message || String(errorReturn)
+            });
+        }
+    }
+
+    resultado.devoluciones.sort(function (a, b) {
+        var fechaA = a.devolucion && a.devolucion.return
+            ? String(a.devolucion.return.last_updated || "")
+            : "";
+        var fechaB = b.devolucion && b.devolucion.return
+            ? String(b.devolucion.return.last_updated || "")
+            : "";
+        return fechaA < fechaB ? 1 : (fechaA > fechaB ? -1 : 0);
+    });
+
+    resultado.total = resultado.devoluciones.length;
+    resultado.ok = resultado.errores.length === 0;
+    return resultado;
+}
+
+function validarRangoFechasDevoluciones(fechaDesde, fechaHasta) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fechaDesde || "")) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(String(fechaHasta || ""))) {
+        throw new Error("Debe informar las fechas desde y hasta en formato YYYY-MM-DD");
+    }
+
+    var desde = crearFechaLocalDevolucion(fechaDesde);
+    var hasta = crearFechaLocalDevolucion(fechaHasta);
+
+    if (desde.getTime() > hasta.getTime()) {
+        throw new Error("La fecha desde no puede ser posterior a la fecha hasta");
+    }
+
+    var dias = Math.floor((
+        Date.UTC(hasta.getFullYear(), hasta.getMonth(), hasta.getDate()) -
+        Date.UTC(desde.getFullYear(), desde.getMonth(), desde.getDate())
+    ) / 86400000) + 1;
+    if (dias > 31) {
+        throw new Error("El rango máximo de consulta es de 31 días");
+    }
+}
+
+function construirRangoFechasDevoluciones(fechaDesde, fechaHasta) {
+    var fechas = [];
+    var actual = crearFechaLocalDevolucion(fechaDesde);
+    var hasta = crearFechaLocalDevolucion(fechaHasta);
+
+    while (actual.getTime() <= hasta.getTime()) {
+        fechas.push(formatearFechaDevolucion(actual));
+        actual.setDate(actual.getDate() + 1);
+    }
+
+    return fechas;
+}
+
+function crearFechaLocalDevolucion(valor) {
+    var partes = String(valor).split("-");
+    var fecha = new Date(
+        Number(partes[0]),
+        Number(partes[1]) - 1,
+        Number(partes[2])
+    );
+
+    if (fecha.getFullYear() !== Number(partes[0]) ||
+        fecha.getMonth() !== Number(partes[1]) - 1 ||
+        fecha.getDate() !== Number(partes[2])) {
+        throw new Error("La fecha informada no es válida: " + valor);
+    }
+
+    return fecha;
+}
+
+function formatearFechaDevolucion(fecha) {
+    var mes = String(fecha.getMonth() + 1);
+    var dia = String(fecha.getDate());
+    return fecha.getFullYear() + "-" +
+        (mes.length < 2 ? "0" + mes : mes) + "-" +
+        (dia.length < 2 ? "0" + dia : dia);
+}
 // rut
 
 function ValidarMetodoPagoOrden(order) {
