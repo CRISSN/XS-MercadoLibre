@@ -1078,7 +1078,8 @@ function consultarClaimsCuentaVendedora(accessToken, sellerId, fechaDesde, fecha
     try {
         do {
             var path = "/post-purchase/v1/claims/search" +
-                "?players.user_id=" + encodeURIComponent(String(sellerId)) +
+                "?type=return" +
+                "&players.user_id=" + encodeURIComponent(String(sellerId)) +
                 "&players.role=respondent" +
                 "&range=" + encodeURIComponent(rango) +
                 "&sort=" + encodeURIComponent("date_created:desc") +
