@@ -1,7 +1,7 @@
 var DBCONEX = $.import("CONEX", "DBCONEX");
 var Config = $.import("MercadoLibre", "AppConfig");
 var LogicaMercadoLibre =$.import("MercadoLibre.Logica", "Logica");
-var SLCONEX=$.import("CONEX.SLCONEX", "SLCONEX");
+var SLCONEX=$.import("MercadoLibre", "SLMercadoLibre");
 var UTIL = $.import("CONEX.UTIL", "UTIL");
 //Metodo para actualizar precios y stock de un articulo
 /* Variables Globales */
